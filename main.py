@@ -122,7 +122,6 @@ while True:
             if event.key == pygame.K_d:
                 player2_x = min(len(map_data[0]) - 1, player2_x + 1); moved2 = True
 
-            # プレイヤーが動いたら獲物も一回だけ行動（修正必要）ハンターが同時に動くことがないから反応しない
             
             # 獲物がハンターに捕まっていると動けなくなる
             if not hunt1:

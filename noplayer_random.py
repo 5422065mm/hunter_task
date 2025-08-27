@@ -52,15 +52,15 @@ hunt1 = False
 hunt2 = False
 
 # ウィンドウに表示する文字の設定
-#font1 = pygame.font.SysFont(None, 30)
-#message_hunt = "Preys are Not hunted"
-#text_hunt = font1.render(message_hunt, True, (255, 0, 0))
+font1 = pygame.font.SysFont(None, 30)
+message_hunt = "Preys are Not hunted"
+text_hunt = font1.render(message_hunt, True, (255, 0, 0))
 
-#message_count = "Count : 0"
-#text_count = font1.render(message_count, True, (255, 0, 0))
+message_count = "Count : 0"
+text_count = font1.render(message_count, True, (255, 0, 0))
 
 # 移動回数
-#count = 0
+count = 0
 
 # 意図推定から行動決定までLLMにやらせる？
 
@@ -139,14 +139,14 @@ while True:
 
             # countもハンターが二体とも動いたときにのみ増やすようにしたい
             # 獲物が二体とも捕まるとカウントを止める
-            #if (not hunt1) or (not hunt2):
-            #    count += 1
+            if (not hunt1) or (not hunt2):
+                count += 1
             
-            #message_hunt = "Preys are " + ("HUNTED!" if (hunt1 and hunt2) else "Not hunted")
-            #text_hunt = font1.render(message_hunt, True, (255, 0, 0))
+            message_hunt = "Preys are " + ("HUNTED!" if (hunt1 and hunt2) else "Not hunted")
+            text_hunt = font1.render(message_hunt, True, (255, 0, 0))
 
-            #message_count = "Count : " + str(count)
-            #text_count = font1.render(message_count, True, (255, 0, 0))
+            message_count = "Count : " + str(count)
+            text_count = font1.render(message_count, True, (255, 0, 0))
             
 
     # 描画
@@ -156,8 +156,8 @@ while True:
     draw_player(player2_img, player2_x, player2_y)
     draw_prey(prey1_img, prey1_x, prey1_y)
     draw_prey(prey2_img, prey2_x, prey2_y)
-    #screen.blit(text_hunt, (670, 10))
-    #screen.blit(text_count, (670, 50))
+    screen.blit(text_hunt, (670, 10))
+    screen.blit(text_count, (670, 50))
     pygame.display.flip()
     
 

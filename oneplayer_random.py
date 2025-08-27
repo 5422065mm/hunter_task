@@ -52,15 +52,15 @@ hunt1 = False
 hunt2 = False
 
 # ウィンドウに表示する文字の設定
-#font1 = pygame.font.SysFont(None, 30)
-#message_hunt = "Preys are Not hunted"
-#text_hunt = font1.render(message_hunt, True, (255, 0, 0))
+font1 = pygame.font.SysFont(None, 30)
+message_hunt = "Preys are Not hunted"
+text_hunt = font1.render(message_hunt, True, (255, 0, 0))
 
-#message_count = "Count : 0"
-#text_count = font1.render(message_count, True, (255, 0, 0))
+message_count = "Count : 0"
+text_count = font1.render(message_count, True, (255, 0, 0))
 
 # 移動回数
-#count = 0
+count = 0
 
 # 意図推定から行動決定までLLMにやらせる？
 
@@ -98,6 +98,8 @@ while True:
             pygame.quit()
             sys.exit()
 
+        moved1 = False
+
         # プレイヤー移動（キー入力）
         if event.type == pygame.KEYDOWN:
             
@@ -111,16 +113,22 @@ while True:
                 player1_x = max(0, player1_x - 1); moved1 = True
             if event.key == pygame.K_RIGHT:
                 player1_x = min(len(map_data[0]) - 1, player1_x + 1); moved1 = True
+            if event.key == pygame.K_SPACE:
+                moved1 = True
 
-            # プレイヤー2の操作
-            if event.key == pygame.K_w:
-                player2_y = max(0, player2_y - 1); moved2 = True
-            if event.key == pygame.K_s:
-                player2_y = min(len(map_data) - 1, player2_y + 1); moved2 = True
-            if event.key == pygame.K_a:
-                player2_x = max(0, player2_x - 1); moved2 = True
-            if event.key == pygame.K_d:
-                player2_x = min(len(map_data[0]) - 1, player2_x + 1); moved2 = True
+            # プレイヤー2の動き
+            r_2 = random.random()
+            if r_2 < 0.2:
+                player2_y = max(0, player2_y - 1)
+            elif r_2 < 0.4:
+                player2_y = min(len(map_data), player2_y + 1)
+            elif r_2 < 0.6:
+                player2_x = min(len(map_data[0]), player2_x + 1)
+            elif r_2 < 0.8:
+                player2_x = max(0, player2_x - 1)
+            else:
+                pass
+            
 
             
             # 獲物がハンターに捕まっていると動けなくなる
@@ -137,16 +145,16 @@ while True:
             if ((player1_x == prey2_x) and (player1_y == prey2_y)) or ((player2_x == prey2_x) and (player2_y == prey2_y)):
                 hunt2 = True
 
-            # countもハンターが二体とも動いたときにのみ増やすようにしたい
+            # countもハンターが二体とも動いたときにのみ増やすようにしたい→すべて同時に動く前提からして不要かも
             # 獲物が二体とも捕まるとカウントを止める
-            #if (not hunt1) or (not hunt2):
-            #    count += 1
+            if (not hunt1) or (not hunt2):
+                count += 1
             
-            #message_hunt = "Preys are " + ("HUNTED!" if (hunt1 and hunt2) else "Not hunted")
-            #text_hunt = font1.render(message_hunt, True, (255, 0, 0))
+            message_hunt = "Preys are " + ("HUNTED!" if (hunt1 and hunt2) else "Not hunted")
+            text_hunt = font1.render(message_hunt, True, (255, 0, 0))
 
-            #message_count = "Count : " + str(count)
-            #text_count = font1.render(message_count, True, (255, 0, 0))
+            message_count = "Count : " + str(count)
+            text_count = font1.render(message_count, True, (255, 0, 0))
             
 
     # 描画
@@ -156,8 +164,8 @@ while True:
     draw_player(player2_img, player2_x, player2_y)
     draw_prey(prey1_img, prey1_x, prey1_y)
     draw_prey(prey2_img, prey2_x, prey2_y)
-    #screen.blit(text_hunt, (670, 10))
-    #screen.blit(text_count, (670, 50))
+    screen.blit(text_hunt, (670, 10))
+    screen.blit(text_count, (670, 50))
     pygame.display.flip()
     
 

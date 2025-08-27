@@ -35,15 +35,14 @@ prey1_img = pygame.transform.scale(prey1_img, (TILE_SIZE, TILE_SIZE))
 prey2_img = pygame.image.load("images/prey2.png")   # 獲物エージェントの画像
 prey2_img = pygame.transform.scale(prey2_img, (TILE_SIZE, TILE_SIZE))
 
-# プレイヤーの初期位置
-player1_x, player1_y = 5, 5
-
-player2_x, player2_y = 5, 10
-
-# 獲物の初期位置
-prey1_x, prey1_y = 10, 10
-
-prey2_x, prey2_y = 10, 5
+# プレイヤー・獲物の初期位置
+all_positions = [(x, y) for x in range(len(map_data[0])) for y in range(len(map_data))]
+# 重複なしでランダムに座標を決める
+player1_pos, player2_pos, prey1_pos, prey2_pos = random.sample(all_positions, 4)
+player1_x, player1_y = player1_pos
+player2_x, player2_y = player2_pos
+prey1_x, prey1_y = prey1_pos
+prey2_x, prey2_y = prey2_pos
 
 # 動き判定
 #moved1 = False
@@ -156,13 +155,10 @@ while True:
                 else:
                     pass
             
-                 # 獲物が二体とも同じ位置に入るとハンター一体でどちらもつかまってしまう
-                if ((player1_x == prey1_x) and (player1_y == prey1_y)) or ((player2_x == prey1_x) and (player2_y == prey1_y)):
+                 # 獲物が二体とも同じ位置にいても問題ない
+                if not hunt1 and ((player1_x, player1_y) == (prey1_x, prey1_y) or (player2_x, player2_y) == (prey1_x, prey1_y)):
                     hunt1 = True
-                
-                
-
-                if ((player1_x == prey2_x) and (player1_y == prey2_y)) or ((player2_x == prey2_x) and (player2_y == prey2_y)):
+                elif not hunt2 and ((player1_x, player1_y) == (prey2_x, prey2_y) or (player2_x, player2_y) == (prey2_x, prey2_y)):
                     hunt2 = True
                 
             

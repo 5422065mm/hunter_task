@@ -53,7 +53,7 @@ hunt2 = False
 
 # ウィンドウに表示する文字の設定
 font1 = pygame.font.SysFont(None, 30)
-message_hunt = "Prey was Not hunted"
+message_hunt = "Preys are Not hunted"
 text_hunt = font1.render(message_hunt, True, (255, 0, 0))
 
 message_count = "Count : 0"
@@ -142,7 +142,7 @@ while True:
             if (not hunt1) or (not hunt2):
                 count += 1
             
-            message_hunt = "Preys is " + ("HUNTED!" if (hunt1 and hunt2) else "Not hunted")
+            message_hunt = "Preys are " + ("HUNTED!" if (hunt1 and hunt2) else "Not hunted")
             text_hunt = font1.render(message_hunt, True, (255, 0, 0))
 
             message_count = "Count : " + str(count)

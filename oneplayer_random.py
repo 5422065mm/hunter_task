@@ -46,10 +46,10 @@ prey1_x, prey1_y = 10, 10
 prey2_x, prey2_y = 10, 5
 
 # 動き判定
-moved1 = False
-moved2 = False
-hunt1 = False
-hunt2 = False
+#moved1 = False
+#moved2 = False
+#hunt1 = False
+#hunt2 = False
 
 # ウィンドウに表示する文字の設定
 font1 = pygame.font.SysFont(None, 30)
@@ -82,9 +82,13 @@ def draw_prey(prey_img, x, y):
 def move_prey(prey_x, prey_y):
     r = random.random()  # 0.0〜1.0 の乱数
     if r < 0.2:  # 20%で上に移動
-        prey_y = max(0, prey_y - 1)
+        prey_y -= 1
+        if prey_y  < 0:
+            prey_y = len(map_data) - 1
     elif r < 0.6:  # 40%で右に移動
-        prey_x = min(len(map_data[0]) - 1, prey_x + 1)
+        prey_x += 1
+        if prey_x  > len(map_data[0]) - 1:
+            prey_x = 0
     else:  # 40%は動かない
         pass
 
@@ -99,6 +103,8 @@ while True:
             sys.exit()
 
         moved1 = False
+        hunt1 = False
+        hunt2 = False
 
         # プレイヤー移動（キー入力）
         if event.type == pygame.KEYDOWN:
@@ -106,49 +112,76 @@ while True:
             
             # プレイヤー1の操作
             if event.key == pygame.K_UP:
-                player1_y = max(0, player1_y - 1); moved1 = True
+                player1_y -= 1
+                if player1_y  < 0:
+                    player1_y = len(map_data) - 1
+                moved1 = True
             if event.key == pygame.K_DOWN:
-                player1_y = min(len(map_data) - 1, player1_y + 1); moved1 = True
+                player1_y += 1
+                if player1_y > len(map_data) - 1:
+                    player1_y = 0
+                moved1 = True
             if event.key == pygame.K_LEFT:
-                player1_x = max(0, player1_x - 1); moved1 = True
+                player1_x -= 1
+                if player1_x < 0:
+                    player1_x = len(map_data[0]) - 1
+                moved1 = True
             if event.key == pygame.K_RIGHT:
-                player1_x = min(len(map_data[0]) - 1, player1_x + 1); moved1 = True
+                player1_x += 1
+                if player1_x > len(map_data[0]) - 1:
+                    player1_x = 0
+                moved1 = True
             if event.key == pygame.K_SPACE:
                 moved1 = True
 
             # プレイヤー2の動き
-            r_2 = random.random()
-            if r_2 < 0.2:
-                player2_y = max(0, player2_y - 1)
-            elif r_2 < 0.4:
-                player2_y = min(len(map_data), player2_y + 1)
-            elif r_2 < 0.6:
-                player2_x = min(len(map_data[0]), player2_x + 1)
-            elif r_2 < 0.8:
-                player2_x = max(0, player2_x - 1)
-            else:
-                pass
+            if moved1:
+                r_2 = random.random()
+                if r_2 < 0.2:
+                    player2_y -= 1
+                    if player2_y  < 0:
+                        player2_y = len(map_data) - 1
+                elif r_2 < 0.4:
+                    player2_y += 1
+                    if player2_y > len(map_data) - 1:
+                        player2_y = 0
+                elif r_2 < 0.6:
+                    player2_x -= 1
+                    if player2_x < 0:
+                        player2_x = len(map_data[0]) - 1
+                elif r_2 < 0.8:
+                    player2_x += 1
+                    if player2_x > len(map_data[0]) - 1:
+                        player2_x = 0
+                else:
+                    pass
             
+                 # 獲物が二体とも同じ位置に入るとハンター一体でどちらもつかまってしまう
+                if ((player1_x == prey1_x) and (player1_y == prey1_y)) or ((player2_x == prey1_x) and (player2_y == prey1_y)):
+                    hunt1 = True
+                
+                
+
+                if ((player1_x == prey2_x) and (player1_y == prey2_y)) or ((player2_x == prey2_x) and (player2_y == prey2_y)):
+                    hunt2 = True
+                
+            
+                # 獲物がハンターに捕まっていると動けなくなる
+            
+                if not hunt1:
+                    prey1_x, prey1_y = move_prey(prey1_x, prey1_y)
+
+                if not hunt2:
+                    prey2_x, prey2_y = move_prey(prey2_x, prey2_y)
+
+                # countもハンターが二体とも動いたときにのみ増やすようにしたい→すべて同時に動く前提からして不要かも
+                # 獲物が二体とも捕まるとカウントを止める
+                if (not hunt1) or (not hunt2):
+                    count += 1
+
+           
 
             
-            # 獲物がハンターに捕まっていると動けなくなる
-            if not hunt1:
-                prey1_x, prey1_y = move_prey(prey1_x, prey1_y)
-
-            if not hunt2:
-                prey2_x, prey2_y = move_prey(prey2_x, prey2_y)
-
-            # 獲物が二体とも同じ位置に入るとハンター一体でどちらもつかまってしまう
-            if ((player1_x == prey1_x) and (player1_y == prey1_y)) or ((player2_x == prey1_x) and (player2_y == prey1_y)):
-                hunt1 = True
-
-            if ((player1_x == prey2_x) and (player1_y == prey2_y)) or ((player2_x == prey2_x) and (player2_y == prey2_y)):
-                hunt2 = True
-
-            # countもハンターが二体とも動いたときにのみ増やすようにしたい→すべて同時に動く前提からして不要かも
-            # 獲物が二体とも捕まるとカウントを止める
-            if (not hunt1) or (not hunt2):
-                count += 1
             
             message_hunt = "Preys are " + ("HUNTED!" if (hunt1 and hunt2) else "Not hunted")
             text_hunt = font1.render(message_hunt, True, (255, 0, 0))

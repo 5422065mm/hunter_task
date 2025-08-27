@@ -47,8 +47,8 @@ prey2_x, prey2_y = prey2_pos
 # 動き判定
 #moved1 = False
 #moved2 = False
-#hunt1 = False
-#hunt2 = False
+hunt1 = False
+hunt2 = False
 
 # ウィンドウに表示する文字の設定
 font1 = pygame.font.SysFont(None, 30)
@@ -57,6 +57,7 @@ text_hunt = font1.render(message_hunt, True, (255, 0, 0))
 
 message_count = "Count : 0"
 text_count = font1.render(message_count, True, (255, 0, 0))
+
 
 # 移動回数
 count = 0
@@ -102,8 +103,7 @@ while True:
             sys.exit()
 
         moved1 = False
-        hunt1 = False
-        hunt2 = False
+        
 
         # プレイヤー移動（キー入力）
         if event.type == pygame.KEYDOWN:
@@ -155,11 +155,28 @@ while True:
                 else:
                     pass
             
-                 # 獲物が二体とも同じ位置にいても問題ない
-                if not hunt1 and ((player1_x, player1_y) == (prey1_x, prey1_y) or (player2_x, player2_y) == (prey1_x, prey1_y)):
-                    hunt1 = True
-                elif not hunt2 and ((player1_x, player1_y) == (prey2_x, prey2_y) or (player2_x, player2_y) == (prey2_x, prey2_y)):
-                    hunt2 = True
+                # 捕獲判定
+                if not hunt1:  # prey1 がまだ捕まっていないときだけチェック
+                    same_pos_prey1 = (player1_x, player1_y) == (prey1_x, prey1_y) or (player2_x, player2_y) == (prey1_x, prey1_y)
+                    if same_pos_prey1:
+                        hunt1 = True
+
+                if not hunt2:  # prey2 がまだ捕まっていないときだけチェック
+                    same_pos_prey2 = (player1_x, player1_y) == (prey2_x, prey2_y) or (player2_x, player2_y) == (prey2_x, prey2_y)
+                    if same_pos_prey2:
+                        hunt2 = True
+
+                # 両方の獲物が同じマスで、かつハンターもそのマスにいる場合 → 両方捕まる
+                if (prey1_x, prey1_y) == (prey2_x, prey2_y) and same_pos_prey1 and same_pos_prey2:
+                    hunt1, hunt2 = True, True
+                else:
+                    # prey1 が捕まる（ただしまだ捕まっていない場合のみ）
+                    if not hunt1 and same_pos_prey1:
+                        hunt1 = True
+
+                    # prey2 が捕まる（ただしまだ捕まっていない場合のみ）
+                    if not hunt2 and same_pos_prey2:
+                        hunt2 = True
                 
             
                 # 獲物がハンターに捕まっていると動けなくなる
@@ -179,11 +196,11 @@ while True:
 
             
             
-            message_hunt = "Preys are " + ("HUNTED!" if (hunt1 and hunt2) else "Not hunted")
-            text_hunt = font1.render(message_hunt, True, (255, 0, 0))
+                message_hunt = "Preys are " + ("HUNTED!" if (hunt1 and hunt2) else "Not hunted")
+                text_hunt = font1.render(message_hunt, True, (255, 0, 0))
 
-            message_count = "Count : " + str(count)
-            text_count = font1.render(message_count, True, (255, 0, 0))
+                message_count = "Count : " + str(count)
+                text_count = font1.render(message_count, True, (255, 0, 0))
             
 
     # 描画

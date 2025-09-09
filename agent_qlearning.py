@@ -546,6 +546,7 @@ while True:
         prey1_x, prey1_y = move_prey(prey1_x, prey1_y)
 
     caught = (player1_x, player1_y) == (prey1_x, prey1_y)
+    #報酬の設定を変えたほうが良いかも
     reward = 10.0 if caught else -0.1
     hunt1 = caught
 

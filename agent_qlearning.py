@@ -427,7 +427,7 @@ GRID_H = len(map_data)
 
 # ===== Q学習エージェント =====
 class QLearningAgent:
-    def __init__(self, grid_w, grid_h, actions, alpha=0.2, gamma=0.95, eps_start=1.0, eps_end=0.05, eps_decay=0.999):
+    def __init__(self, grid_w, grid_h, actions, alpha=0.2, gamma=0.95, eps_start=1.0, eps_end=0.05, eps_decay=0.995):
         self.grid_w = grid_w
         self.grid_h = grid_h
         self.actions = actions
@@ -471,6 +471,19 @@ ACTION_TO_DXY = {
     "STAY":  (0,  0),
 }
 
+#ハンターと獲物の距離計算式（マンハッタン距離）
+""""
+def torus_distance(x1, y1, x2, y2, w, h):
+    dx = min(abs(x1 - x2), w - abs(x1 - x2))
+    dy = min(abs(y1 - y2), h - abs(y1 - y2))
+    return dx + dy
+"""
+#ハンターと獲物の距離計算式（ユークリッド距離）
+def torus_distance(x1, y1, x2, y2, w, h):
+    dx = min(abs(x1 - x2), w - abs(x1 - x2))
+    dy = min(abs(y1 - y2), h - abs(y1 - y2))
+    return (dx**2 + dy**2) ** 0.5
+
 # 描画
 def draw_map():
     for row in range(len(map_data)):
@@ -487,12 +500,18 @@ def draw_prey(img, x, y):
 # 獲物ランダム移動
 def move_prey(prey_x, prey_y):
     r = random.random()
-    if r < 0.2:
-        prey_y -= 1
-    elif r < 0.6:
-        prey_x += 1
+    if episode >= 1000:
+        if r < 0.2:
+            prey_y -= 1
+        elif r < 0.6:
+            prey_x += 1
+        else:
+            #初期段階はこの動かない確率を増やす設計もあり
+            #ある一定のエピソード数に達したらここの確率を変更する形式でOK
+            pass
     else:
         pass
+
     return wrap_pos(prey_x, prey_y, GRID_W, GRID_H)
 
 # 初期配置（重複なし）
@@ -515,7 +534,7 @@ hunt1 = False
 count_total_steps = 0
 episode = 1
 steps_in_episode = 0
-MAX_EPISODES = 1000
+MAX_EPISODES = 5000
 steps_per_episode = []
 
 # エピソードリセット
@@ -547,7 +566,21 @@ while True:
 
     caught = (player1_x, player1_y) == (prey1_x, prey1_y)
     #報酬の設定を変えたほうが良いかも
-    reward = 10.0 if caught else -0.1
+    # --- 距離計算 ---
+    #ユークリッド距離を使う（トーラスなのでmod計算込み）
+
+    dist_before = torus_distance(state[0], state[1], state[2], state[3], GRID_W, GRID_H)
+    dist_after  = torus_distance(player1_x, player1_y, prey1_x, prey1_y, GRID_W, GRID_H)
+
+    if caught:
+        reward = 10.0  # 捕獲したら大きな報酬
+    else:
+        reward = -0.1  # 時間ペナルティ
+        if dist_after < dist_before:
+            reward += 0.1   # 近づいたら小さな報酬
+        elif dist_after > dist_before:
+            reward -= 0.3   # 離れたら小さなペナルティ
+
     hunt1 = caught
 
     next_state = (player1_x, player1_y, prey1_x, prey1_y)
@@ -562,14 +595,14 @@ while True:
 
     # 1000エピソード終了でグラフ描画
     if episode > MAX_EPISODES:
-        plt.figure(figsize=(12,6))
+        plt.figure(figsize=(20,10))
         plt.plot(range(1, len(steps_per_episode)+1), steps_per_episode, color="blue")
         plt.xlabel("Episode")
         plt.ylabel("Steps per Episode")
         plt.title("Steps per Episode in Q-Learning Hunter Task")
         plt.xticks(range(0, MAX_EPISODES+1, 100))
         max_steps = max(steps_per_episode)
-        plt.yticks(range(0, int(max_steps)+100, 100))
+        plt.yticks(range(0, int(max_steps)+100, 10))
         plt.grid(True)
         plt.show()
         pygame.quit()
@@ -591,7 +624,7 @@ while True:
     screen.blit(text_ep, (520, 70))
     pygame.display.flip()
 
-    if episode <= 970:
+    if episode <= MAX_EPISODES - 30:
         clock.tick()
     else:
         clock.tick(30)

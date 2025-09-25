@@ -394,6 +394,9 @@ import pygame
 import sys
 import random
 import matplotlib.pyplot as plt
+import pickle
+import os
+
 
 # ===== Pygame初期化 =====
 pygame.init()
@@ -565,7 +568,6 @@ while True:
         prey1_x, prey1_y = move_prey(prey1_x, prey1_y)
 
     caught = (player1_x, player1_y) == (prey1_x, prey1_y)
-    #報酬の設定を変えたほうが良いかも
     # --- 距離計算 ---
     #ユークリッド距離を使う（トーラスなのでmod計算込み）
 
@@ -595,6 +597,12 @@ while True:
 
     # 1000エピソード終了でグラフ描画
     if episode > MAX_EPISODES:
+        #Q辞書保存
+        save_path = os.path.join(os.path.dirname(__file__), "q_table.pkl")
+        with open("q_table.pkl", "wb") as f:
+            pickle.dump(agent.Q, f)
+
+        print("保存しました:", save_path)
         plt.figure(figsize=(20,10))
         plt.plot(range(1, len(steps_per_episode)+1), steps_per_episode, color="blue")
         plt.xlabel("Episode")
@@ -607,6 +615,7 @@ while True:
         plt.show()
         pygame.quit()
         sys.exit()
+        
 
     # --- 表示更新 ---
     status = "HUNTED!" if hunt1 else "Not hunted"

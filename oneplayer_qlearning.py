@@ -41,9 +41,9 @@ player1_x, player1_y = 5, 5
 player2_x, player2_y = 5, 10
 
 # 獲物の初期位置
-prey1_x, prey1_y = 10, 10
+prey1_x, prey1_y = 5, 10
 
-prey2_x, prey2_y = 10, 5
+prey2_x, prey2_y = 5, 5
 
 # 動き判定
 moved1 = False

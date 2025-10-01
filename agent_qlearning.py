@@ -618,8 +618,7 @@ while True:
         
 
     # --- 表示更新 ---
-    status = "HUNTED!" if hunt1 else "Not hunted"
-    text_hunt = font.render(f"Prey: {status}", True, (255, 0, 0))
+
     text_count = font.render(f"Total Steps: {count_total_steps}", True, (255, 0, 0))
     text_ep = font.render(f"Episode: {episode}  Steps(episode): {steps_in_episode}  epsilon: {agent.epsilon:.3f}", True, (0, 0, 255))
 
@@ -628,9 +627,8 @@ while True:
     draw_map()
     draw_player(player1_img, player1_x, player1_y)
     draw_prey(prey1_img, prey1_x, prey1_y)
-    screen.blit(text_hunt, (650, 10))
     screen.blit(text_count, (650, 40))
-    screen.blit(text_ep, (520, 70))
+    screen.blit(text_ep, (650, 70))
     pygame.display.flip()
 
     if episode <= MAX_EPISODES - 30:

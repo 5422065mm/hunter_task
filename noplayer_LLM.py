@@ -1,26 +1,24 @@
 import pygame
 import sys
 import random
-import matplotlib.pyplot as plt
-import pickle
+import json
 import os
+from openai import OpenAI
+from dotenv import load_dotenv
 
-# ===== Pygame初期化 =====
+# ====== 環境変数読み込み ======
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# ====== Pygame初期化 ======
 pygame.init()
-
-# 画面設定
 SCREEN_WIDTH, SCREEN_HEIGHT = 900, 640
 TILE_SIZE = 32
 WHITE = (255, 255, 255)
-
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Hunter Task - pretrained Q-table (auto mode)")
+pygame.display.set_caption("Hunter Task - LLM Intent System")
 
-# ===== マップ設定 =====
-map_data = [[0 for _ in range(20)] for _ in range(20)]
-GRID_W, GRID_H = len(map_data[0]), len(map_data)
-
-# ===== 画像読み込み =====
+# ====== 画像読み込み ======
 def load_scaled(path):
     img = pygame.image.load(path)
     return pygame.transform.scale(img, (TILE_SIZE, TILE_SIZE))
@@ -33,41 +31,17 @@ prey2_img = load_scaled("images/prey2.png")
 
 font = pygame.font.SysFont(None, 24)
 
-# ===== Qテーブル読み込み（事前学習済み） =====
-load_path1 = os.path.join(os.path.dirname(__file__), "q_table.pkl")
-load_path2 = os.path.join(os.path.dirname(__file__), "q_table.pkl")
-
-with open(load_path1, "rb") as f:
-    Q1 = pickle.load(f)
-with open(load_path2, "rb") as f:
-    Q2 = pickle.load(f)
-
-print("読み込み完了:", load_path1, load_path2)
-
-# ===== パラメータ =====
-LV1 = 0  # ハンター1のレベル（0 or 1）
-LV2 = 1  # ハンター2のレベル（0 or 1）
-
-ACTION_TO_DXY = {
-    "UP":    (0, -1),
-    "DOWN":  (0,  1),
-    "LEFT":  (-1, 0),
-    "RIGHT": (1,  0),
-    "STAY":  (0,  0),
-}
-ACTIONS = list(ACTION_TO_DXY.keys())
-
-# ===== ユーティリティ関数 =====
-def wrap_pos(x, y, w, h):
-    return x % w, y % h
+# ====== マップ設定 ======
+GRID_W, GRID_H = 20, 20
+def wrap_pos(x, y): return x % GRID_W, y % GRID_H
 
 def move_prey(x, y):
     r = random.random()
-    if r < 0.2:   # 上
-        y -= 1
-    elif r < 0.6: # 右
-        x += 1
-    return wrap_pos(x, y, GRID_W, GRID_H)
+    if r < 0.25: y -= 1
+    elif r < 0.5: y += 1
+    elif r < 0.75: x -= 1
+    else: x += 1
+    return wrap_pos(x, y)
 
 def draw_map():
     for row in range(GRID_H):
@@ -76,120 +50,223 @@ def draw_map():
 
 def draw_player(img, x, y): screen.blit(img, (x * TILE_SIZE, y * TILE_SIZE))
 def draw_prey(img, x, y): screen.blit(img, (x * TILE_SIZE, y * TILE_SIZE))
-
 def sample_non_overlapping_positions(n):
     all_positions = [(x, y) for x in range(GRID_W) for y in range(GRID_H)]
     return random.sample(all_positions, n)
 
-# ===== Q値ベース行動選択 =====
-def select_action(Q, state):
-    if state not in Q:
-        return random.choice(ACTIONS)
-    q = Q[state]
-    return max(q, key=q.get)
+# ====== レベル設定 ======
+LV1 = 1  # 自己
+LV2 = 0  # 相手
+print(f"現在の設定: Player1(Lv{LV1}) / Player2(Lv{LV2})")
 
-# ===== 相手の獲物推定 (G^o = argGmax P(G|so,ao)) =====
-def estimate_opponent_target(opponent_Q, opp_state_prey1, opp_state_prey2):
-    """相手の行動価値(Q値)から、どちらの獲物を狙っているか推定"""
-    q1_val = max(opponent_Q.get(opp_state_prey1, {a:0 for a in ACTIONS}).values())
-    q2_val = max(opponent_Q.get(opp_state_prey2, {a:0 for a in ACTIONS}).values())
-    return "prey1" if q1_val > q2_val else "prey2"
+# =========================================================
+#  ① 他者の意図推定
+# =========================================================
+def estimate_opponent_intention(state_info):
+    prompt = f"""
+あなたは「ハンタータスク」という環境において、他者（もう一体のハンター）の意図を推定するシステムです。
+私が指示した以外の返答は一切不要です。
 
-# ===== 行動決定 (式(2): G* = argGmax Q_i(G|s_i,a_i,G^o)) =====
-def decide_target(LV, own_Q, opp_Q, own_pos, opp_pos, prey1_pos, prey2_pos):
-    if LV == 0:
-        # Lv.0: 自身のQ値が高い方を選ぶ
-        s1 = (*own_pos, *prey1_pos)
-        s2 = (*own_pos, *prey2_pos)
-        q1_val = max(own_Q.get(s1, {a:0 for a in ACTIONS}).values())
-        q2_val = max(own_Q.get(s2, {a:0 for a in ACTIONS}).values())
-        return "prey1" if q1_val > q2_val else "prey2"
+これ以降、あなた自身のことを「自己」、協力相手であるもう一体のハンターを「他者」と呼びます。
 
-    else:
-        # Lv.1: 相手の狙い G^o を推定し、別を選ぶ
-        s1_opp = (*opp_pos, *prey1_pos)
-        s2_opp = (*opp_pos, *prey2_pos)
-        G_o = estimate_opponent_target(opp_Q, s1_opp, s2_opp)
-        return "prey2" if G_o == "prey1" else "prey1"  # 式(2): 別の獲物を選択
+---
 
-# ===== シミュレーション初期化 =====
+# ■ ハンタータスクの説明
+ハンタータスクは、20×20のトーラス構造のグリッドで構成される環境です。
+この中には2体のハンター（自己と他者）と2体の獲物（AとB）が存在します。
+ハンターは獲物を捕獲することを目的とし、獲物は逃走します。
+
+端から出ると反対側に現れるトーラス構造のため、距離の概念は循環的です。
+
+---
+
+# ■ あなたのタスク
+入力として与えられるマップ情報から、合理的かつ一貫した形で「他者の意図（どちらの獲物を狙っているか）」を推定してください。
+
+---
+
+# ■ 入力（観測情報）
+{json.dumps(state_info, ensure_ascii=False, indent=2)}
+
+---
+
+# ■ 出力フォーマット
+以下のJSON形式で出力してください。
+{{
+  "他者の意図": "（例：獲物Aを狙っている）"
+}}
+"""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "あなたはハンタータスクの意図推定AIです。"},
+            {"role": "user", "content": prompt},
+        ]
+    )
+    text = response.choices[0].message.content
+    try:
+        result = json.loads(text)
+        return result.get("他者の意図", "不明")
+    except Exception:
+        return text
+
+# =========================================================
+#  ② 自己の意図生成
+# =========================================================
+def generate_self_intention(state_info, opponent_intention):
+    prompt = f"""
+あなたは意図生成システムです。私が指示した以外の返答は一切不要です。
+これ以降、意図生成システムであるあなたを「自己」、協力相手であるもう一体のハンターを「他者」と呼びます。
+
+---
+
+# ■ ハンタータスク概要
+このタスクは20×20のトーラス構造マップ上で、2体のハンターと2体の獲物が存在します。
+ハンターの目的は協力して獲物を捕獲することです。
+
+---
+
+# ■ 内部表現
+あなた（自己）は以下を持ちます：
+・自己の信念
+・他者の信念
+・自己の願望
+・他者の願望
+・自己の意図
+・他者の意図
+
+---
+
+# ■ 信念・願望・意図の定義
+信念：現在の世界状態の理解。箇条書き形式。
+願望：達成したい目標や状態。箇条書き形式。
+意図：行動を起こすための計画や戦略。1つのみ。
+
+---
+
+# ■ あなたのタスク
+与えられた「自己の信念」「自己の願望」「他者の意図」から、矛盾のない「自己の意図」を生成してください。
+
+---
+
+# 入力
+## 自己の信念
+・自己の位置と獲物の位置から見て、捕獲までの距離が異なる
+・他者は別の方向に移動している可能性がある
+・マップはトーラス構造で端から端がつながっている
+## 自己の願望
+・タスク全体の成功（双方が異なる獲物を効率的に捕獲）
+・他者との衝突を避け、効率的に探索する
+## 他者の意図
+{opponent_intention}
+
+---
+
+# 出力
+## 自己の意図
+（例：「他者が獲物Aを狙うなら、自分は獲物Bを狙う」など、1文で明確に記述）
+"""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "あなたはハンタータスクの意図生成AIです。"},
+            {"role": "user", "content": prompt},
+        ]
+    )
+    text = response.choices[0].message.content
+    try:
+        result = json.loads(text)
+        return result.get("自己の意図", text)
+    except Exception:
+        return text
+
+# =========================================================
+#  ③ 行動決定
+# =========================================================
+def decide_action(state_info, self_intention, opponent_intention):
+    prompt = f"""
+あなたは「ハンタータスク」において次の行動を決定するエージェントです。
+他者と協力し、全体の成功（両方の獲物を捕獲）を目指します。
+
+---
+
+# 入力情報
+{json.dumps(state_info, ensure_ascii=False, indent=2)}
+
+自己の意図: {self_intention}
+他者の意図: {opponent_intention}
+
+---
+
+# 出力形式
+{{
+  "次の行動": "上 / 下 / 左 / 右 / その場に留まる",
+  "理由": "簡潔に説明"
+}}
+"""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "あなたはハンタータスクの行動決定AIです。"},
+            {"role": "user", "content": prompt},
+        ]
+    )
+    text = response.choices[0].message.content
+    try:
+        result = json.loads(text)
+        return result
+    except Exception:
+        return {"次の行動": "不明", "理由": text}
+
+# =========================================================
+#  メインループ
+# =========================================================
 (player1_x, player1_y), (player2_x, player2_y), (prey1_x, prey1_y), (prey2_x, prey2_y) = sample_non_overlapping_positions(4)
 hunt1, hunt2 = False, False
-count_total_steps, episode, steps_in_episode = 0, 1, 0
-MAX_EPISODES = 1000
-steps_per_episode = []
 clock = pygame.time.Clock()
 
-# ===== メインループ =====
 while True:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
-            plt.figure(figsize=(20,10))
-            plt.plot(range(1, len(steps_per_episode)+1), steps_per_episode, color="blue")
-            plt.xlabel("エピソード")
-            plt.ylabel("各エピソードのステップ数")
-            plt.title("各エピソードのステップ数 (pretrained Q-table)")
-            plt.grid(True)
-            plt.show()
             pygame.quit()
             sys.exit()
 
-    # --- 各ハンターの行動目標を決定 ---
-    goal1 = decide_target(LV1, Q1, Q2, (player1_x, player1_y), (player2_x, player2_y), (prey1_x, prey1_y), (prey2_x, prey2_y))
-    goal2 = decide_target(LV2, Q2, Q1, (player2_x, player2_y), (player1_x, player1_y), (prey1_x, prey1_y), (prey2_x, prey2_y))
+    state_info = {
+        "自己座標": (player1_x, player1_y),
+        "他者座標": (player2_x, player2_y),
+        "獲物A座標": (prey1_x, prey1_y),
+        "獲物B座標": (prey2_x, prey2_y),
+    }
 
-    # --- 目標方向に移動 ---
-    def move_toward(px, py, tx, ty):
-        if tx > px: px += 1
-        elif tx < px: px -= 1
-        if ty > py: py += 1
-        elif ty < py: py -= 1
-        return wrap_pos(px, py, GRID_W, GRID_H)
+    # --- Lv0は意図推定を行わない ---
+    opponent_action = decide_action(state_info, "なし", "不明")["次の行動"]
 
-    if not hunt1 or not hunt2:
-        if goal1 == "prey1" and not hunt1:
-            player1_x, player1_y = move_toward(player1_x, player1_y, prey1_x, prey1_y)
-        elif goal1 == "prey2" and not hunt2:
-            player1_x, player1_y = move_toward(player1_x, player1_y, prey2_x, prey2_y)
+    # --- Lv1: 意図推定 → 自己の意図生成 → 行動決定 ---
+    opponent_intention = estimate_opponent_intention(state_info)
+    self_intention = generate_self_intention(state_info, opponent_intention)
+    result = decide_action(state_info, self_intention, opponent_intention)
+    own_action = result["次の行動"]
 
-        if goal2 == "prey1" and not hunt1:
-            player2_x, player2_y = move_toward(player2_x, player2_y, prey1_x, prey1_y)
-        elif goal2 == "prey2" and not hunt2:
-            player2_x, player2_y = move_toward(player2_x, player2_y, prey2_x, prey2_y)
+    def apply_action(x, y, action):
+        if action == "上": y -= 1
+        elif action == "下": y += 1
+        elif action == "左": x -= 1
+        elif action == "右": x += 1
+        return wrap_pos(x, y)
 
-    # --- 捕獲判定 ---
+    player1_x, player1_y = apply_action(player1_x, player1_y, own_action)
+    player2_x, player2_y = apply_action(player2_x, player2_y, opponent_action)
+
     if (player1_x, player1_y) == (prey1_x, prey1_y) or (player2_x, player2_y) == (prey1_x, prey1_y):
         hunt1 = True
     if (player1_x, player1_y) == (prey2_x, prey2_y) or (player2_x, player2_y) == (prey2_x, prey2_y):
         hunt2 = True
 
-    # --- 獲物移動（捕まっていない場合のみ） ---
     if not hunt1:
         prey1_x, prey1_y = move_prey(prey1_x, prey1_y)
     if not hunt2:
         prey2_x, prey2_y = move_prey(prey2_x, prey2_y)
 
-    # --- エピソード管理 ---
-    steps_in_episode += 1
-    count_total_steps += 1
-    if hunt1 and hunt2:
-        steps_per_episode.append(steps_in_episode)
-        steps_in_episode = 0
-        episode += 1
-        if episode > MAX_EPISODES:
-            plt.figure(figsize=(20,10))
-            plt.plot(range(1, len(steps_per_episode)+1), steps_per_episode, color="blue")
-            plt.xlabel("エピソード")
-            plt.ylabel("各エピソードのステップ数")
-            plt.title("各エピソードのステップ数 (pretrained Q-table)")
-            plt.grid(True)
-            plt.show()
-            pygame.quit()
-            sys.exit()
-        (player1_x, player1_y), (player2_x, player2_y), (prey1_x, prey1_y), (prey2_x, prey2_y) = sample_non_overlapping_positions(4)
-        hunt1, hunt2 = False, False
-
-    # --- 描画 ---
     screen.fill(WHITE)
     draw_map()
     draw_player(player1_img, player1_x, player1_y)
@@ -197,12 +274,8 @@ while True:
     draw_prey(prey1_img, prey1_x, prey1_y)
     draw_prey(prey2_img, prey2_x, prey2_y)
 
-    status = f"Ep:{episode}  Step:{steps_in_episode}  Lv1={LV1} Lv2={LV2}  Prey1={'X' if hunt1 else 'O'} Prey2={'X' if hunt2 else 'O'}"
-    text = font.render(status, True, (0,0,255))
-    screen.blit(text, (20, 10))
+    info = f"Lv1={LV1} Lv2={LV2} | prey1={'X' if hunt1 else 'O'} prey2={'X' if hunt2 else 'O'}"
+    screen.blit(font.render(info, True, (0,0,255)), (20, 10))
 
     pygame.display.flip()
-    if episode <= MAX_EPISODES - 30:
-        clock.tick()
-    else:
-        clock.tick(30)
+    clock.tick(5)

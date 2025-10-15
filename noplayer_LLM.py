@@ -191,6 +191,7 @@ def decide_action(state_info, self_intention, opponent_intention):
 ---
 
 # 入力情報
+#ここで座標情報をわたしている。
 {json.dumps(state_info, ensure_ascii=False, indent=2)}
 
 自己の意図: {self_intention}
@@ -230,7 +231,8 @@ while True:
         if event.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
-
+            
+    #座標の渡し方が少し変→Lv0がいる前提の渡し方になっている
     state_info = {
         "自己座標": (player1_x, player1_y),
         "他者座標": (player2_x, player2_y),

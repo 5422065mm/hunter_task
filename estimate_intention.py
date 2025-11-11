@@ -13,10 +13,10 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # ====== Pygame初期化 ======
 pygame.init()
 SCREEN_WIDTH, SCREEN_HEIGHT = 900, 640
-self_pos = (5,5)
-other_pos = (15, 5)
+self_pos = (5,10)
+other_pos = (10, 15)
 preyA_pos = (5, 15)
-preyB_pos = (15, 15)
+preyB_pos = (10, 10)
 
 state_info = {
     "自己座標": self_pos,
@@ -47,8 +47,6 @@ def estimate_opponent_intention(state_info):
     - 観測：各ターンで、自己・他者・獲物A・獲物Bの**現在座標のみ**が観測可能です。
     - 目的：
       - ハンターは協調的に行動し、可能な限り少ないターンで全ての獲物を捕獲することを目指します。
-      - ただし本プロンプトでは、行動方針や移動戦略の詳細は扱いません。
-        入力としては、位置情報（座標）のみを使用します。
 
     ---
 
@@ -70,7 +68,7 @@ def estimate_opponent_intention(state_info):
     ---
 
     # ■ タスク
-    観測情報（座標のみ）から、合理的かつ一貫した形で
+    観測JSON（座標のみ）から合理的かつ一貫した形で
     「他者の意図（どの獲物を狙っているか）」を1つ推定してください。
     他者の位置、獲物との相対距離、自己の位置を考慮してください。
 
@@ -112,4 +110,8 @@ def estimate_opponent_intention(state_info):
     return inferred_intention
 
 
-opponent_intention = estimate_opponent_intention(state_info)
+estimate_opponent_intention(state_info)
+
+##{json.dumps(state_info, ensure_ascii=False, indent=2)}
+##観測情報（座標のみ）から、合理的かつ一貫した形で
+##観測JSON（座標のみ）から合理的かつ一貫した形で

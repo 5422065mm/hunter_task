@@ -1,4 +1,36 @@
-def generate_self_intention(state_info, self_beliefs, self_desires, opponent_intention):
+import pygame
+import sys
+import random
+import json
+import os
+from openai import OpenAI
+from dotenv import load_dotenv
+
+# ====== 環境変数読み込み ======
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# ====== Pygame初期化 ======
+pygame.init()
+SCREEN_WIDTH, SCREEN_HEIGHT = 900, 640
+self_pos = (5,10)
+other_pos = (5, 10)
+preyA_pos = (5, 15)
+preyB_pos = (5, 8)
+
+state_info = {
+    "自己座標": self_pos,
+    "他者座標": other_pos,
+    "獲物A座標": preyA_pos,
+    "獲物B座標": preyB_pos,
+}
+
+##self_beliefs = {}→これは周囲の環境情報なので座標情報に当たりそう
+self_desires = {}
+opponent_intenion = {"獲物A"}
+
+
+def generate_self_intention(state_info, self_desires, opponent_intention):
     system_prompt = f"""
 あなたは意図生成システムです。私が指示した以外の返答は一切不要です。
 これ以降、意図生成システムであるあなたを「自己」、協力相手であるもう一体のハンターを「他者」と呼びます。
@@ -97,3 +129,6 @@ def generate_self_intention(state_info, self_beliefs, self_desires, opponent_int
         self_intention = text
     print("自己の意図:", self_intention)
     return self_intention
+
+
+generate_self_intention(state_info, self_desires, opponent_intention)

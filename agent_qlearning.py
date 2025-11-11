@@ -598,8 +598,8 @@ while True:
     # 1000エピソード終了でグラフ描画
     if episode > MAX_EPISODES:
         #Q辞書保存
-        save_path = os.path.join(os.path.dirname(__file__), "q_table.pkl")
-        with open("q_table.pkl", "wb") as f:
+        save_path = os.path.join(os.path.dirname(__file__), "q_table.pkl2")
+        with open("q_table.pkl2", "wb") as f:
             pickle.dump(agent.Q, f)
 
         print("保存しました:", save_path)

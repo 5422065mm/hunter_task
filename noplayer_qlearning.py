@@ -35,7 +35,7 @@ font = pygame.font.SysFont(None, 24)
 
 # ===== Qテーブル読み込み（事前学習済み） =====
 load_path1 = os.path.join(os.path.dirname(__file__), "q_table.pkl")
-load_path2 = os.path.join(os.path.dirname(__file__), "q_table.pkl")
+load_path2 = os.path.join(os.path.dirname(__file__), "q_table.pkl2")
 
 with open(load_path1, "rb") as f:
     Q1 = pickle.load(f)

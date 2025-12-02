@@ -7,8 +7,15 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 # ====== 環境変数読み込み ======
+# .env ファイルから OPENAI_API_KEY を読み込みます
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+try:
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+except Exception:
+    print("エラー: OPENAI_API_KEYが設定されていません。")
+    print(".env ファイルを作成し、APIキーを記述してください。")
+    sys.exit()
+
 
 # ====== Pygame初期化 ======
 pygame.init()
@@ -18,11 +25,26 @@ WHITE = (255, 255, 255)
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Hunter Task - LLM Intent System")
 
-# ====== 画像読み込み ======
-def load_scaled(path):
-    img = pygame.image.load(path)
-    return pygame.transform.scale(img, (TILE_SIZE, TILE_SIZE))
+# ===== パラメータ設定 =====
+# LV1: 意図推定あり（協調）/ LV0: 意図推定なし（単独）
+LV1 = 1 
+LV2 = 0 
+GRID_W, GRID_H = 20, 20
 
+# ====== 画像読み込みと描画関数 ======
+def load_scaled(path):
+    try:
+        img = pygame.image.load(path)
+        return pygame.transform.scale(img, (TILE_SIZE, TILE_SIZE))
+    except pygame.error:
+        # 代替として、白い四角を生成
+        surf = pygame.Surface((TILE_SIZE, TILE_SIZE))
+        color = (200, 200, 200) if 'ground' in path else (255, 0, 0)
+        surf.fill(color)
+        return surf
+
+
+# 画像パスはプロジェクト構造に合わせて調整してください
 ground_img = load_scaled("images/ground.png")
 player1_img = load_scaled("images/player1.png")
 player2_img = load_scaled("images/player2.png")
@@ -31,8 +53,6 @@ prey2_img = load_scaled("images/prey2.png")
 
 font = pygame.font.SysFont(None, 24)
 
-# ====== マップ設定 ======
-GRID_W, GRID_H = 20, 20
 def wrap_pos(x, y): return x % GRID_W, y % GRID_H
 
 def move_prey(x, y):
@@ -54,37 +74,53 @@ def sample_non_overlapping_positions(n):
     all_positions = [(x, y) for x in range(GRID_W) for y in range(GRID_H)]
     return random.sample(all_positions, n)
 
-# ====== 視点ごとのstate_infoを作る（自己/他者を入れ替えて利用） ======
-def make_state_info(self_pos, other_pos, preyA_pos, preyB_pos):
+
+# ====== 視点ごとのstate_infoを作る（捕獲フラグを追加） ======
+def make_state_info(self_pos, other_pos, preyA_pos, preyB_pos, hunt_A, hunt_B):
     return {
         "自己座標": self_pos,
         "他者座標": other_pos,
         "獲物A座標": preyA_pos,
         "獲物B座標": preyB_pos,
+        "獲物A捕獲済み": hunt_A,
+        "獲物B捕獲済み": hunt_B
     }
 
-# ====== レベル設定 ======
-LV1 = 1  # 自己
-LV2 = 0  # 相手
-print(f"現在の設定: Player1(Lv{LV1}) / Player2(Lv{LV2})")
 
 # =========================================================
-#  ① 他者の意図推定（state_infoのみを入力：BDI説明含む）
+#  LLM API 呼び出し共通関数
+# =========================================================
+def call_llm(system_prompt, user_prompt, model="gpt-4o-mini"):
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            response_format={"type": "json_object"}
+        )
+        text = response.choices[0].message.content
+        return json.loads(text)
+    except Exception as e:
+        print(f"\n--- LLM通信エラー ---")
+        print(f"エラー内容: {e}")
+        print(f"-------------------\n")
+        return {"次の行動": "その場に留まる", "理由": f"LLMエラー: {e}", "他者の意図": "不明", "推定理由": "通信エラーにより推定できませんでした"}
+
+
+# =========================================================
+#  他者の意図推定（共通関数）
 # =========================================================
 def estimate_opponent_intention(state_info):
     system_prompt = f"""
     あなたは意図推定システムです。私が指示した以外の返答は一切不要です。
     これ以降、意図推定システムであるあなた自身のことを「自己」、協力相手であるもう一体のハンターを「他者」と呼びます。
-
-    ---
-
+    
     # ■ ハンタータスクの説明
     - マップ：幅20×高さ20のグリッド。トーラス構造のため、端から出ると反対側に回り込みます。
     - エンティティ：2体のハンター（自己・他者）と2体の獲物（A・B）が存在します。
     - ターン制：各ターンで全エージェント（ハンターと獲物）が**同時に**1行動を実行します。
-    - 距離の定義（トーラス・マンハッタン距離）：
-      - dx = min(|x1−x2|, W−|x1−x2|), dy = min(|y1−y2|, H−|y1−y2|)
-      - dist = dx + dy（ここで W=20, H=20）
     - **捕獲条件**：ターンの行動更新**後**に、ハンターと獲物の**座標が一致**したとき、その獲物は捕獲されたとみなされます。
       - 同一ターンに複数ハンターが同一獲物を捕獲した場合も、捕獲は1回として扱います。
       - 2体の獲物が同ターンに別々に捕獲されることもあります。
@@ -92,252 +128,111 @@ def estimate_opponent_intention(state_info):
     - エピソード終了条件：① 両方の獲物が捕獲された、または ② 最大ターン数 T に到達した場合。
     - 観測：各ターンで、自己・他者・獲物A・獲物Bの**現在座標のみ**が観測可能です。
     - 目的：
-      - ハンターは協調的に行動し、可能な限り少ないターンで全ての獲物を捕獲することを目指します。
-      - ただし本プロンプトでは、行動方針や移動戦略の詳細は扱いません。
-        入力としては、位置情報（座標）のみを使用します。
-
-    ---
-
-    # ■ 内部表現
-    あなたは次の内部表現を持ちます。ただし、指示がない限り、これらを出力する必要はありません。
-    ・自己の信念
-    ・他者の信念
-    ・自己の願望
-    ・他者の願望
-    ・自己の意図
-    ・他者の意図
-
-    # ■ 信念・願望・意図の定義
-    - 信念：世界状態に関する認識の集合（複数可）
-    - 願望：達成したい目標や状態（複数可）
-    - 意図：願望を実現するための行動方針（同時に1つ）
-    （他者の内部状態は自己の推定であり、実際と一致するとは限りません）
-
-    ---
+      - ハンターは効率的に全ての獲物を捕獲することを目指します。
 
     # ■ タスク
-    観測情報（座標のみ）から、合理的かつ一貫した形で
-    「他者の意図（どの獲物を狙っているか）」を1つ推定してください。
-    他者の位置、獲物との相対距離、自己の位置を考慮してください。
-
-    ---
+    観測情報から、合理的かつ一貫した形で
+    「他者の意図（どの獲物を狙っているか）」を1つ推定し、**その推定に至った理由も簡潔に出力**してください。
+    **捕獲済みの獲物を狙っている可能性は極めて低い**ものと仮定してください。
 
     # ■ 入力
     {json.dumps(state_info, ensure_ascii=False, indent=2)}
 
-    ---
-
-    # ■ 出力フォーマット
-    以下のJSON形式で出力してください。
+    # ■ 出力フォーマット（厳守）
+    以下のJSONのみを出力してください（追加テキスト禁止）：
     {{
-      "他者の意図": "（例：獲物Aを狙っている）"
+    "他者の意図": "（獲物Aを狙っている / 獲物Bを狙っている / 不明）",
+    "次の行動": "上 / 下 / 左 / 右 / その場に留まる", 
+    "理由": "簡潔に説明",
+    "推定理由": "他者の位置や獲物との距離に基づいて、推定に至った具体的な理由"
     }}
-    """
+    """.strip()
 
-    user_prompt = f"""{json.dumps(state_info, ensure_ascii=False, indent=2)}"""
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-    )
-
-    text = response.choices[0].message.content
-    try:
-        result = json.loads(text)
-        inferred_intention = result.get("他者の意図", "不明")
-    except Exception:
-        inferred_intention = text
-    print("他者の意図:", inferred_intention)
-    return inferred_intention
-
+    user_prompt = f"""{json.dumps(state_info, ensure_ascii=False, indent=2)}""".strip()
+    return call_llm(system_prompt, user_prompt)
 
 # =========================================================
-#  ② 自己の意図生成（BDI説明付き）
+#  協調行動決定（LLM-Lv1）
 # =========================================================
-def generate_self_intention(state_info, self_beliefs, self_desires, opponent_intention):
+def decide_cooperative_action(state_info, opponent_intention_result):
     system_prompt = f"""
-あなたは意図生成システムです。私が指示した以外の返答は一切不要です。
-これ以降、意図生成システムであるあなたを「自己」、協力相手であるもう一体のハンターを「他者」と呼びます。
+    あなたは行動決定システムです。私が指示した以外の返答は一切不要です。
+    これ以降、行動決定システムであるあなた自身のことを「自己」、協力相手であるもう一体のハンターを「他者」と呼びます。
 
----
+    # ■ ハンタータスクの説明
+    - マップ：幅20×高さ20のグリッド。トーラス構造のため、端から出ると反対側に回り込みます。
+    - エンティティ：2体のハンター（自己・他者）と2体の獲物（A・B）が存在します。
+    - ターン制：各ターンで全エージェント（ハンターと獲物）が**同時に**1行動を実行します。
+    - **捕獲条件**：ターンの行動更新**後**に、ハンターと獲物の**座標が一致**したとき、その獲物は捕獲されたとみなされます。
+      - 同一ターンに複数ハンターが同一獲物を捕獲した場合も、捕獲は1回として扱います。
+      - 2体の獲物が同ターンに別々に捕獲されることもあります。
+    - ハンター同士の位置衝突：同一セルへの同時進入や停止は**許可**（ブロッキングなし）。
+    - エピソード終了条件：① 両方の獲物が捕獲された、または ② 最大ターン数 T に到達した場合。
+    - 観測：各ターンで、自己・他者・獲物A・獲物Bの**現在座標のみ**が観測可能です。
+    - 目的：
+      - ハンターは効率的に全ての獲物を捕獲することを目指します。
 
-# ■ ハンタータスクの説明
-- マップ：幅20×高さ20のグリッド。トーラス構造のため、端から出ると反対側に回り込みます。
-- エンティティ：2体のハンター（自己・他者）と2体の獲物（A・B）が存在します。
-- ターン制：各ターンで全エージェント（ハンターと獲物）が**同時に**1行動を実行します。
-- 距離の定義（トーラス・マンハッタン距離）：
-  - dx = min(|x1−x2|, W−|x1−x2|), dy = min(|y1−y2|, H−|y1−y2|)
-  - dist = dx + dy（ここで W=20, H=20）
-- **捕獲条件**：ターンの行動更新**後**に、ハンターと獲物の**座標が一致**したとき、その獲物は捕獲されたとみなされます。
-  - 同一ターンに複数ハンターが同一獲物を捕獲した場合も、捕獲は1回として扱います。
-  - 距離の定義と捕獲の条件が重なっているのか
-    - 距離が０と座標が重なるのは一緒の意味
-  - 2体の獲物が同ターンに別々に捕獲されることもあります。
-  - 他のハンターのとることのできる動きは入れる必要がある。
-    - 上に行くことはyが一つ増えることです。見ないなもの。行動と距離の関係がつながりきっていない
-- ハンター同士の位置衝突：同一セルへの同時進入や停止は**許可**（ブロッキングなし）。
-- エピソード終了条件：① 両方の獲物が捕獲された、または ② 最大ターン数 T に到達した場合。
-- 観測：各ターンで、自己・他者・獲物A・獲物Bの**現在座標のみ**が観測可能です。
-- 目的：
-  - ハンターは協調的に行動し、可能な限り少ないターンで全ての獲物を捕獲することを目指します。
+    # ■ タスク
+    観測JSONと他者の意図に基づき、
+    次ターンの**自己の行動**を （上, 下, 左, 右, その場に留まる）のいずれか1つで決定し、簡潔な理由とともに出力してください。
+ 
+    # ■ 入力
+    {json.dumps(state_info, ensure_ascii=False, indent=2)}
+    ---
+    # ■ 他者の推定意図
+    {json.dumps(opponent_intention_result, ensure_ascii=False, indent=2)}
 
----
+    # ■ 出力フォーマット（厳守）
+    以下のJSONのみを出力してください（追加テキスト禁止）：
+    {{
+    "次の行動": "上 / 下 / 左 / 右 / その場に留まる",
+    "理由": "簡潔に説明"
+    }}
+    """.strip()
 
-# ■ 内部表現
-・自己の信念
-・他者の信念
-・自己の願望
-・他者の願望
-・自己の意図
-・他者の意図
-
-# ■ 信念・願望・意図の定義
-- 信念：世界状態に関する認識の集合（複数可）
-- 願望：達成したい目標や状態（複数可）
-- 意図：願望を実現するための行動方針（同時に1つ）
-（他者の内部状態は自己の推定であり、実際と一致するとは限りません）
-
----
-
-# ■ タスク
-観測JSON（座標のみ）、「自己の信念」「自己の願望」「他者の意図」から、
-矛盾がなく協調的合理性の高い**自己の意図**を1文で生成してください（同時に保持できる意図は1つ）。
-
----
-
-# ■ 入力（Input）
-- 観測情報（JSON；座標のみ）
-- 自己の信念（箇条書き）
-- 自己の願望（箇条書き）
-- 他者の意図（テキスト1行）
-
----
-
-# ■ 出力（Output）
-以下のJSONのみを出力してください（追加テキスト禁止）：
-{{
-  "自己の意図": "（例：他者が獲物Aを狙うなら、自分は獲物Bを狙う）"
-}}
-""".strip()
-
-    user_prompt = f"""
-# 観測情報（JSON；座標のみ）
-{json.dumps(state_info, ensure_ascii=False, indent=2)}
-
-# 自己の信念
-{chr(10).join('・' + b for b in self_beliefs)}
-
-# 自己の願望
-{chr(10).join('・' + d for d in self_desires)}
-
-# 他者の意図
-{opponent_intention}
-
-# 出力指示
-指定JSONのみを返してください。
-""".strip()
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt},
-        ]
-    )
-
-    text = response.choices[0].message.content
-    try:
-        result = json.loads(text)
-        self_intention = result.get("自己の意図", "不明")
-    except Exception:
-        self_intention = text
-    print("自己の意図:", self_intention)
-    return self_intention
+    user_prompt = f"""{json.dumps(state_info, ensure_ascii=False, indent=2)}""".strip()
+    return call_llm(system_prompt, user_prompt)
 
 
 # =========================================================
-#  ③ 行動決定（BDI説明付き）
+#  単独行動決定（LLM-Lv0）
 # =========================================================
-def decide_action(state_info, self_intention, opponent_intention):
+def decide_solo_action(state_info):
     system_prompt = f"""
-あなたはハンタータスクの行動決定システムです。私が指示した以外の返答は一切不要です。
-これ以降、あなた自身を「自己」、協力相手のもう一体のハンターを「他者」と呼びます。
+    あなたは行動決定システムです。私が指示した以外の返答は一切不要です。
+    これ以降、行動決定システムであるあなた自身のことを「自己」、協力相手であるもう一体のハンターを「他者」と呼びます。
 
----
 
-# ■ ハンタータスクの説明
-- マップ：幅20×高さ20のグリッド。トーラス構造のため、端から出ると反対側に回り込みます。
-- エンティティ：2体のハンター（自己・他者）と2体の獲物（A・B）。
-- ターン制：各ターンで全エージェント（ハンターと獲物）が**同時に**1行動を実行します。
-- 距離（トーラス・マンハッタン）：
-  - dx = min(|x1−x2|, W−|x1−x2|), dy = min(|y1−y2|, H−|y1−y2|)
-  - dist = dx + dy（W=20, H=20）
-- **捕獲条件**：行動更新**後**、ハンターと獲物の**座標が一致**すると捕獲。
-- ハンター同士の位置衝突：同一セルへの同時進入・停止は**許可**（ブロッキングなし）。
-- エピソード終了：① 両獲物捕獲、② 最大ターン数 T 到達。
-- 観測：各ターン、自己・他者・A・Bの**現在座標のみ**が観測可能。
+    # ■ ハンタータスクの説明
+    - マップ：幅20×高さ20のグリッド。トーラス構造のため、端から出ると反対側に回り込みます。
+    - エンティティ：2体のハンター（自己・他者）と2体の獲物（A・B）が存在します。
+    - ターン制：各ターンで全エージェント（ハンターと獲物）が**同時に**1行動を実行します。
+    - **捕獲条件**：ターンの行動更新**後**に、ハンターと獲物の**座標が一致**したとき、その獲物は捕獲されたとみなされます。
+      - 同一ターンに複数ハンターが同一獲物を捕獲した場合も、捕獲は1回として扱います。
+      - 2体の獲物が同ターンに別々に捕獲されることもあります。
+    - ハンター同士の位置衝突：同一セルへの同時進入や停止は**許可**（ブロッキングなし）。
+    - エピソード終了条件：① 両方の獲物が捕獲された、または ② 最大ターン数 T に到達した場合。
+    - 観測：各ターンで、自己・他者・獲物A・獲物Bの**現在座標のみ**が観測可能です。
+    - 目的：
+      - ハンターは効率的に全ての獲物を捕獲することを目指します。
 
----
+    # ■ タスク
+    観測JSON（座標と捕獲フラグのみ）に基づき、
+    次ターンの**自己の行動**を （上, 下, 左, 右, その場に留まる）のいずれか1つで決定し、簡潔な理由とともに出力してください。
 
-# ■ 内部表現
-・自己の信念
-・他者の信念
-・自己の願望
-・他者の願望
-・自己の意図
-・他者の意図
+    # ■ 入力
+    {json.dumps(state_info, ensure_ascii=False, indent=2)}
 
-# ■ 信念・願望・意図の定義
-- 信念：世界状態に関する認識の集合（複数可）。
-- 願望：達成したい目標や状態（複数可）。
-- 意図：願望を実現するための行動方針（同時に1つ）。
-（他者の内部状態は自己の推定であり、実際と一致するとは限りません）
+    # ■ 出力フォーマット（厳守）
+    以下のJSONのみを出力してください（追加テキスト禁止）：
+    {{
+    "次の行動": "上 / 下 / 左 / 右 / その場に留まる",
+    "理由": "簡潔に説明"
+    }}
+    """.strip()
 
----
-
-# ■ タスク
-観測JSON（座標のみ）、自己の意図、他者の意図に基づき、
-次ターンの**自己の行動**を （上, 下, 左, 右, その場に留まる）のいずれか1つで決定し、簡潔な理由とともに出力してください。
-トーラス距離と捕獲条件に整合し、協調（無駄な重複追跡の回避）に配慮してください。
-
----
-
-# ■ 出力フォーマット（厳守）
-以下のJSONのみを出力してください（追加テキスト禁止）：
-{{
-  "次の行動": "上 / 下 / 左 / 右 / その場に留まる",
-  "理由": "簡潔に説明"
-}}
-""".strip()
-
-    prompt = f"""
-# 入力情報（観測JSON）
-{json.dumps(state_info, ensure_ascii=False, indent=2)}
-
-自己の意図: {self_intention}
-他者の意図: {opponent_intention}
-
-# 出力指示
-指定のJSONのみを返してください。
-""".strip()
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": prompt},
-        ]
-    )
-
-    text = response.choices[0].message.content
-    try:
-        result = json.loads(text)
-        return result
-    except Exception:
-        return {"次の行動": "不明", "理由": text}
+    user_prompt = f"""{json.dumps(state_info, ensure_ascii=False, indent=2)}""".strip()
+    return call_llm(system_prompt, user_prompt)
 
 
 # =========================================================
@@ -345,11 +240,13 @@ def decide_action(state_info, self_intention, opponent_intention):
 # =========================================================
 (player1_x, player1_y), (player2_x, player2_y), (prey1_x, prey1_y), (prey2_x, prey2_y) = sample_non_overlapping_positions(4)
 hunt1, hunt2 = False, False
+steps = 0
 clock = pygame.time.Clock()
 
-# 自己の信念/願望　テキトーにおいてます。
-self_beliefs_default = ["重複追跡を避けたい"]
-self_desires_default = ["速やかに両獲物を捕獲したい"]
+ACTION_TO_DXY = {
+    "上": (0, -1), "下": (0, 1), "左": (-1, 0), "右": (1, 0), "その場に留まる": (0, 0),
+}
+
 
 while True:
     for event in pygame.event.get():
@@ -357,46 +254,70 @@ while True:
             pygame.quit()
             sys.exit()
 
+    steps += 1
+
     # === 視点ごとのstate_infoを作成（P1視点 / P2視点） ===
+    # **P1視点 (協調)**
     state_info_p1 = make_state_info(
         (player1_x, player1_y), (player2_x, player2_y),
-        (prey1_x, prey1_y), (prey2_x, prey2_y)
-    )  # プレイヤー1視点（自己=player1）
-
+        (prey1_x, prey1_y), (prey2_x, prey2_y), hunt1, hunt2
+    ) 
+    # **P2視点 (単独)**
     state_info_p2 = make_state_info(
         (player2_x, player2_y), (player1_x, player1_y),
-        (prey1_x, prey1_y), (prey2_x, prey2_y)
-    )  # プレイヤー2視点（自己=player2）
-
-    # --- プレイヤー2（Lv0想定）：意図推定なしで行動決定（自分視点のstateで）
-    opponent_action = decide_action(state_info_p2, "なし", "不明")["次の行動"]
-
-    # --- プレイヤー1（Lv1）：意図推定 → 自己意図生成 → 行動決定
-    opponent_intention = estimate_opponent_intention(state_info_p1)
-
-    self_intention = generate_self_intention(
-        state_info_p1, self_beliefs_default, self_desires_default, opponent_intention
+        (prey1_x, prey1_y), (prey2_x, prey2_y), hunt1, hunt2
     )
 
-    result = decide_action(state_info_p1, self_intention, opponent_intention)
-    own_action = result["次の行動"]
+    # --- P2 (Lv0/単独行動): 意図推定なしで行動決定 ---
+    p2_result = decide_solo_action(state_info_p2)
+    p2_action = p2_result["次の行動"]
+
+
+    # --- P1 (Lv1/協調行動): 意図推定 → 行動決定 ---
+    # 1. P1視点から、P2の意図を推定する
+    p2_intention_result = estimate_opponent_intention(state_info_p1)
+    
+    # 2. P1は、P2の意図と自分のstate_infoに基づいて行動を決定する
+    p1_result = decide_cooperative_action(state_info_p1, p2_intention_result)
+    p1_action = p1_result["次の行動"]
+
+
+    # **【コンソールにLLMの結果を出力】**
+    print("==================================================================")
+    print(f"ターン: {steps} | Prey1:{'X' if hunt1 else 'O'}, Prey2:{'X' if hunt2 else 'O'}")
+    # P2の推定意図とその理由を出力
+    print(f"P2 (他者) 推定意図: {p2_intention_result.get('他者の意図', '---')}")
+    print(f"P2 (他者) 推定理由: {p2_intention_result.get('推定理由', '---')}") 
+    print(f"P1 (協調) 行動/理由: {p1_action} / {p1_result.get('理由', '---')}")
+    print(f"P2 (単独) 行動/理由: {p2_action} / {p2_result.get('理由', '---')}")
+    print("==================================================================")
+
 
     # === 行動の適用 ===
     def apply_action(x, y, action):
-        if action == "上": y -= 1
-        elif action == "下": y += 1
-        elif action == "左": x -= 1
-        elif action == "右": x += 1
-        return wrap_pos(x, y)
+        dxy = ACTION_TO_DXY.get(action, (0, 0))
+        return wrap_pos(x + dxy[0], y + dxy[1])
 
-    player1_x, player1_y = apply_action(player1_x, player1_y, own_action)
-    player2_x, player2_y = apply_action(player2_x, player2_y, opponent_action)
+    player1_x, player1_y = apply_action(player1_x, player1_y, p1_action)
+    player2_x, player2_y = apply_action(player2_x, player2_y, p2_action)
+
 
     # 捕獲判定
-    if (player1_x, player1_y) == (prey1_x, prey1_y) or (player2_x, player2_y) == (prey1_x, prey1_y):
-        hunt1 = True
-    if (player1_x, player1_y) == (prey2_x, prey2_y) or (player2_x, player2_y) == (prey2_x, prey2_y):
-        hunt2 = True
+    prey1_captured = (player1_x, player1_y) == (prey1_x, prey1_y) or (player2_x, player2_y) == (prey1_x, prey1_y)
+    prey2_captured = (player1_x, player1_y) == (prey2_x, prey2_y) or (player2_x, player2_y) == (prey2_x, prey2_y)
+    
+    # 捕獲フラグを更新
+    if prey1_captured: hunt1 = True
+    if prey2_captured: hunt2 = True
+
+    # エピソード終了判定
+    if hunt1 and hunt2:
+        print("\n--- 全ての獲物を捕獲しました！リセットします ---")
+        # リセット処理
+        (player1_x, player1_y), (player2_x, player2_y), (prey1_x, prey1_y), (prey2_x, prey2_y) = sample_non_overlapping_positions(4)
+        hunt1, hunt2 = False, False
+        steps = 0
+
 
     # 獲物移動
     if not hunt1:
@@ -409,11 +330,14 @@ while True:
     draw_map()
     draw_player(player1_img, player1_x, player1_y)
     draw_player(player2_img, player2_x, player2_y)
+    
+    # 獲物の表示を常に実行 (捕獲後も同じ位置に留まる)
     draw_prey(prey1_img, prey1_x, prey1_y)
     draw_prey(prey2_img, prey2_x, prey2_y)
 
-    info = f"Lv1={LV1} Lv2={LV2} | prey1={'X' if hunt1 else 'O'} prey2={'X' if hunt2 else 'O'}"
-    screen.blit(font.render(info, True, (0,0,255)), (20, 10))
+    # ステータス表示（Pygame画面）
+    info1 = f"STEP:{steps} | P1(協調) ACT:{p1_action} | P2(単独) ACT:{p2_action} | H1:{'X' if hunt1 else 'O'} H2:{'X' if hunt2 else 'O'}"
+    screen.blit(font.render(info1, True, (0,0,255)), (20, 10))
 
     pygame.display.flip()
-    clock.tick(5)
+    clock.tick(5) # 1秒間に5ターン

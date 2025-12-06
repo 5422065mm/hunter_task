@@ -48,6 +48,10 @@ print("読み込み完了:", load_path1, load_path2)
 LV1 = 0  # ハンター1のレベル（0 or 1）
 LV2 = 1  # ハンター2のレベル（0 or 1）
 
+# ★ここに保存したシード値のリストを入れてください
+# 例: REPLAY_SEEDS = [12345, 67890, 54321]
+REPLAY_SEEDS = [] 
+
 ACTION_TO_DXY = {
     "UP":    (0, -1),
     "DOWN":  (0,  1),
@@ -108,7 +112,25 @@ def decide_target(LV, own_Q, own_pos, opp_pos, prey1_pos, prey2_pos):
         return "prey2" if G_o == "prey1" else "prey1"  # 式(2): 別の獲物を選択
 
 # ===== シミュレーション初期化 =====
-(player1_x, player1_y), (player2_x, player2_y), (prey1_x, prey1_y), (prey2_x, prey2_y) = sample_non_overlapping_positions(4)
+# ★シード値を適用して位置を決定する関数
+def setup_episode_positions(ep_num):
+    # リストにシードがあればそれを使い、なければランダム生成
+    if len(REPLAY_SEEDS) >= ep_num:
+        seed_val = REPLAY_SEEDS[ep_num - 1]
+    else:
+        seed_val = random.randint(0, 999999)
+    
+    # シード適用（これにより配置と獲物の動きが固定される）
+    random.seed(seed_val)
+    return sample_non_overlapping_positions(4), seed_val
+
+# 初期セットアップ
+(positions), current_seed = setup_episode_positions(1)
+(player1_x, player1_y) = positions[0]
+(player2_x, player2_y) = positions[1]
+(prey1_x, prey1_y)     = positions[2]
+(prey2_x, prey2_y)     = positions[3]
+
 hunt1, hunt2 = False, False
 count_total_steps, episode, steps_in_episode = 0, 1, 0
 MAX_EPISODES = 1000
@@ -181,7 +203,14 @@ while True:
             plt.show()
             pygame.quit()
             sys.exit()
-        (player1_x, player1_y), (player2_x, player2_y), (prey1_x, prey1_y), (prey2_x, prey2_y) = sample_non_overlapping_positions(4)
+        
+        # ★次エピソードのシード値適用と配置
+        (positions), current_seed = setup_episode_positions(episode)
+        (player1_x, player1_y) = positions[0]
+        (player2_x, player2_y) = positions[1]
+        (prey1_x, prey1_y)     = positions[2]
+        (prey2_x, prey2_y)     = positions[3]
+        
         hunt1, hunt2 = False, False
 
     # --- 描画 ---
@@ -192,7 +221,7 @@ while True:
     draw_prey(prey1_img, prey1_x, prey1_y)
     draw_prey(prey2_img, prey2_x, prey2_y)
 
-    status = f"Ep:{episode}  Step:{steps_in_episode}  Lv1={LV1} Lv2={LV2}  Prey1={'X' if hunt1 else 'O'} Prey2={'X' if hunt2 else 'O'}"
+    status = f"Ep:{episode}(Seed:{current_seed}) Step:{steps_in_episode} Lv1={LV1} Lv2={LV2} Prey1={'X' if hunt1 else 'O'} Prey2={'X' if hunt2 else 'O'}"
     text = font.render(status, True, (0,0,255))
     screen.blit(text, (20, 10))
 
@@ -201,4 +230,3 @@ while True:
         clock.tick()
     else:
         clock.tick(30)
-

@@ -51,7 +51,7 @@ class SimulationLogger:
                      lv1_info, lv0_info, 
                      pos_lv1, pos_lv0, pos_prey_a, pos_prey_b,
                      dists, 
-                     lv0_verification, lv1_verification):
+                     lv0_verification, lv1_verification, lv1_coop_check): # ★追加: 協調判定
         
         record = {
             "Episode_ID": episode_id,
@@ -65,6 +65,7 @@ class SimulationLogger:
             "Lv1_決定行動": lv1_info.get("action", ""),
             "Lv1_行動理由": lv1_info.get("action_reason", ""),
             "Lv1_近い方を狙ったか": lv1_verification,
+            "Lv1_協調判定(被り回避)": lv1_coop_check, # ★追加
             
             # Lv0
             "Lv0_狙い(宣言)": lv0_info.get("target_declared", ""),
@@ -89,8 +90,11 @@ class SimulationLogger:
     def log_episode_end(self, episode_id, final_turn, seed, result_note=""):
         current_ep_logs = [log for log in self.turn_logs if log["Episode_ID"] == episode_id]
         
+        # 各種カウント
         lv0_match_count = sum(1 for log in current_ep_logs if log["Lv0_近い方を狙ったか"] == "⚪︎")
         lv1_match_count = sum(1 for log in current_ep_logs if log["Lv1_近い方を狙ったか"] == "⚪︎")
+        # ★追加: 協調（推定と異なる獲物を狙った）回数
+        lv1_coop_count = sum(1 for log in current_ep_logs if log["Lv1_協調判定(被り回避)"] == "⚪︎")
 
         self.episode_results.append({
             "Episode_ID": episode_id,
@@ -98,7 +102,8 @@ class SimulationLogger:
             "End_Turn": final_turn,
             "Note": result_note,
             "Lv0_Match_Count": lv0_match_count,
-            "Lv1_Match_Count": lv1_match_count
+            "Lv1_Match_Count": lv1_match_count,
+            "Lv1_Coop_Count": lv1_coop_count # ★追加
         })
 
     def save_all_logs(self, detail_filename="detailed_log.csv", summary_filename="summary_stats.csv"):
@@ -108,7 +113,7 @@ class SimulationLogger:
             cols = [
                 "Episode_ID", "Seed", "現在のターン",
                 "Lv0_狙い(宣言)", "Lv0_近い方を狙ったか", 
-                "Lv1_狙い(宣言)", "Lv1_近い方を狙ったか",
+                "Lv1_狙い(宣言)", "Lv1_近い方を狙ったか", "Lv1_協調判定(被り回避)", # ★追加
                 "Lv1_意図推定", "Lv1_推定理由", "Lv1_決定行動", "Lv1_行動理由",
                 "Lv0_決定行動", "Lv0_行動理由",
                 "Lv1_X", "Lv1_Y", "Lv0_X", "Lv0_Y", "PreyA_X", "PreyA_Y", "PreyB_X", "PreyB_Y",
@@ -132,21 +137,25 @@ class SimulationLogger:
                 
                 lv0_matches = [r["Lv0_Match_Count"] for r in self.episode_results]
                 lv1_matches = [r["Lv1_Match_Count"] for r in self.episode_results]
+                lv1_coops = [r["Lv1_Coop_Count"] for r in self.episode_results] # ★追加
+
                 avg_lv0_match = round(statistics.mean(lv0_matches), 2) if lv0_matches else 0
                 avg_lv1_match = round(statistics.mean(lv1_matches), 2) if lv1_matches else 0
+                avg_lv1_coop = round(statistics.mean(lv1_coops), 2) if lv1_coops else 0 # ★追加
 
                 f.write("【統計サマリー】\n")
                 f.write(f"試行回数,{count}\n")
                 f.write(f"平均ターン数,{avg_turn}\n")
                 f.write(f"最大ターン数,{max_turn}\n")
                 f.write(f"最小ターン数,{min_turn}\n")
-                f.write(f"Lv0 平均一致回数,{avg_lv0_match}\n")
-                f.write(f"Lv1 平均一致回数,{avg_lv1_match}\n")
+                f.write(f"Lv0 平均一致回数(近接),{avg_lv0_match}\n")
+                f.write(f"Lv1 平均一致回数(近接),{avg_lv1_match}\n")
+                f.write(f"Lv1 平均協調回数(被り回避),{avg_lv1_coop}\n") # ★追加
                 f.write("\n")
                 
-                f.write("Episode_ID,Seed,End_Turn,Note,Lv0_Match_Count,Lv1_Match_Count\n")
+                f.write("Episode_ID,Seed,End_Turn,Note,Lv0_Match_Count,Lv1_Match_Count,Lv1_Coop_Count\n")
                 for r in self.episode_results:
-                    f.write(f"{r['Episode_ID']},{r['Seed']},{r['End_Turn']},{r['Note']},{r['Lv0_Match_Count']},{r['Lv1_Match_Count']}\n")
+                    f.write(f"{r['Episode_ID']},{r['Seed']},{r['End_Turn']},{r['Note']},{r['Lv0_Match_Count']},{r['Lv1_Match_Count']},{r['Lv1_Coop_Count']}\n")
             print(f"統計サマリーを保存しました: {summary_filename}")
 
     def save_steps_graph(self, filename="episode_steps_graph.png"):
@@ -182,7 +191,7 @@ SCREEN_WIDTH, SCREEN_HEIGHT = 900, 640
 TILE_SIZE = 32
 WHITE = (255, 255, 255)
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Hunter Task - Full Detail Logging")
+pygame.display.set_caption("Hunter Task - Intent & Cooperation")
 
 GRID_W, GRID_H = 20, 20
 
@@ -235,8 +244,10 @@ def make_state_info(self_pos, other_pos, preyA_pos, preyB_pos, hunt_A, hunt_B):
     }
 
 # =========================================================
-#  共通：行動検証ロジック (思考の比較)
+#  検証ロジック群
 # =========================================================
+
+# 1. 宣言した狙いが、距離的に近い方と一致しているか
 def verify_intention(dist_a_t, dist_b_t, llm_declared_target):
     calculated_target = ""
     if dist_a_t < dist_b_t:
@@ -244,12 +255,26 @@ def verify_intention(dist_a_t, dist_b_t, llm_declared_target):
     elif dist_b_t < dist_a_t:
         calculated_target = "獲物B"
     else:
-        return "△"
+        return "△" # 距離同じ
 
     if calculated_target in llm_declared_target:
-        return "⚪︎"
+        return "⚪︎" # 一致
     else:
-        return "✖️"
+        return "✖️" # 不一致
+
+# 2. ★追加: Lv1が「推定した相手の獲物」と「異なる獲物」を狙っているか
+def verify_cooperation(lv1_declared_target, lv1_estimated_lv0_target):
+    # ターゲット名を抽出して比較
+    t1 = "獲物A" if "獲物A" in lv1_declared_target else ("獲物B" if "獲物B" in lv1_declared_target else None)
+    t_est = "獲物A" if "獲物A" in lv1_estimated_lv0_target else ("獲物B" if "獲物B" in lv1_estimated_lv0_target else None)
+
+    if t1 is None or t_est is None:
+        return "△" # 判定不能
+    
+    if t1 != t_est:
+        return "⚪︎" # 異なる獲物を狙っている（協調成功）
+    else:
+        return "✖️" # 同じ獲物を狙っている（被り）
 
 # =========================================================
 #  LLM API 呼び出し
@@ -407,7 +432,6 @@ episode_count = 1
 current_steps = 0
 clock = pygame.time.Clock()
 
-# ★ グローバル定義 (エラー修正済み)
 ACTION_TO_DXY = {
     "上": (0, -1), "下": (0, 1), "左": (-1, 0), "右": (1, 0), "その場に留まる": (0, 0),
 }
@@ -439,7 +463,6 @@ while True:
 
     current_steps += 1
 
-    # State Info
     state_info_p1 = make_state_info((player1_x, player1_y), (player2_x, player2_y), (prey1_x, prey1_y), (prey2_x, prey2_y), hunt1, hunt2) 
     state_info_p2 = make_state_info((player2_x, player2_y), (player1_x, player1_y), (prey1_x, prey1_y), (prey2_x, prey2_y), hunt1, hunt2)
 
@@ -452,6 +475,7 @@ while True:
     p1_result = decide_cooperative_action(state_info_p1, p2_intention)
     p1_action = p1_result.get("次の行動", "その場に留まる")
     p1_declared_target = p1_result.get("狙っている獲物", "不明") 
+    p1_estimated_p2_target = p2_intention.get("他者の意図", "不明") # 推定結果
 
     # 距離計算
     lv0_pos = (player2_x, player2_y)
@@ -470,13 +494,15 @@ while True:
         "d1_b_t": calc_torus_manhattan(lv1_pos, b_pos, GRID_W, GRID_H),
     }
 
-    # 意図検証
+    # 検証
     lv0_check = verify_intention(dists["d0_a_t"], dists["d0_b_t"], p2_declared_target)
     lv1_check = verify_intention(dists["d1_a_t"], dists["d1_b_t"], p1_declared_target)
+    # ★追加: 協調判定 (推定した相手の狙い != 自分の狙い ならOK)
+    lv1_coop_check = verify_cooperation(p1_declared_target, p1_estimated_p2_target)
 
     # ログ記録
     lv1_log_info = {
-        "intent": p2_intention.get("他者の意図", "不明"),
+        "intent": p1_estimated_p2_target,
         "intent_reason": p2_intention.get("推定理由", ""),
         "action": p1_action,
         "action_reason": p1_result.get("理由", ""),
@@ -500,26 +526,27 @@ while True:
         pos_prey_b=b_pos,
         dists=dists,           
         lv0_verification=lv0_check,
-        lv1_verification=lv1_check 
+        lv1_verification=lv1_check,
+        lv1_coop_check=lv1_coop_check # ★追加
     )
 
-    # ★★★ コンソール出力（詳細版へ復元） ★★★
+    # コンソール出力
     print("==================================================================")
     print(f"Ep:{episode_count} Turn: {current_steps} | Seed:{current_seed}")
     print(f"PreyA:{'HOLD' if hunt1 else 'FREE'} | PreyB:{'HOLD' if hunt2 else 'FREE'}")
     
     print(f"-- P1 (Lv1: 協調) --")
     print(f"  行動: {p1_action} (狙い: {p1_declared_target} -> 近い?: {lv1_check})")
-    print(f"  理由: {lv1_log_info['action_reason']}")
     print(f"  [意図推定]: P2は「{lv1_log_info['intent']}」")
-    print(f"  [推定理由]: {lv1_log_info['intent_reason']}")
+    print(f"  [協調判定]: 推定と違う獲物? -> {lv1_coop_check}")
+    print(f"  理由: {lv1_log_info['action_reason']}")
+    print(f"  推定理由: {lv1_log_info['intent_reason']}")
 
     print(f"-- P2 (Lv0: 単独) --")
     print(f"  行動: {p2_action} (狙い: {p2_declared_target} -> 近い?: {lv0_check})")
     print(f"  理由: {lv0_log_info['action_reason']}")
     print("==================================================================")
 
-    # 行動反映
     def apply_action(x, y, action):
         dxy = ACTION_TO_DXY.get(action, (0, 0))
         return wrap_pos(x + dxy[0], y + dxy[1])
@@ -527,11 +554,9 @@ while True:
     player1_x, player1_y = apply_action(player1_x, player1_y, p1_action)
     player2_x, player2_y = apply_action(player2_x, player2_y, p2_action)
 
-    # 捕獲判定
     hunt1 = ((player1_x, player1_y) == (prey1_x, prey1_y)) or ((player2_x, player2_y) == (prey1_x, prey1_y))
     hunt2 = ((player1_x, player1_y) == (prey2_x, prey2_y)) or ((player2_x, player2_y) == (prey2_x, prey2_y))
     
-    # 終了判定
     if (hunt1 and hunt2) or current_steps >= 100:
         note = "Clear" if (hunt1 and hunt2) else "TimeUp"
         print(f"\n--- Ep {episode_count} Finished: {note} ---")
@@ -539,20 +564,17 @@ while True:
         logger.log_episode_end(episode_id=episode_count, final_turn=current_steps, seed=current_seed, result_note=note)
         
         episode_count += 1
-
-        if episode_count > 10:  # 11回目に入ろうとしたら終了
+        if episode_count > 20:
             print("\n=== 全エピソード終了 (自動停止) ===")
-            logger.save_all_logs()       # ログ保存
-            logger.save_steps_graph()    # グラフ保存
+            logger.save_all_logs()
+            logger.save_steps_graph()
             pygame.quit()
             sys.exit()
-
         
         current_steps = 0
         current_seed, (player1_x, player1_y), (player2_x, player2_y), (prey1_x, prey1_y), (prey2_x, prey2_y) = setup_episode(episode_count)
         hunt1, hunt2 = False, False
 
-    # 獲物移動
     if not hunt1: prey1_x, prey1_y = move_prey(prey1_x, prey1_y)
     if not hunt2: prey2_x, prey2_y = move_prey(prey2_x, prey2_y)
 

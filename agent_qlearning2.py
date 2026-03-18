@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import pickle
 import os
 
+#相対座標によるQ辞書の作成#
 
 # ===== Pygame初期化 =====
 pygame.init()
